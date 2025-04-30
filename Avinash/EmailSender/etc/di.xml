@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Saurav Kumar.
+ *
+ * @category  Saurav Kumar
+ * @package   Avinash_EmailSender
+ * @author    Saurav Kumar
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+  <!-- for override magento default Transport class with our custom module model-->
+  <preference for="Magento\Email\Model\Mail\TransportInterfacePlugin" type="Avinash\EmailSender\Plugin\Mail\TransportPlugin"/>
+  <type name="Avinash\EmailSender\Logger\Handler">
+    <arguments>
+      <argument name="filesystem" xsi:type="object">Magento\Framework\Filesystem\Driver\File</argument>
+    </arguments>
+  </type>
+  <type name="Avinash\EmailSender\Logger\Logger">
+    <arguments>
+      <argument name="name" xsi:type="string">customLogHandler</argument>
+      <argument name="handlers" xsi:type="array">
+        <item name="system" xsi:type="object">Avinash\EmailSender\Logger\Handler</item>
+      </argument>
+    </arguments>
+  </type>
+  <preference for="Avinash\EmailSender\Api\Data\SendCountInterface" type="Avinash\EmailSender\Model\SendCount"/>
+  <preference for="Avinash\EmailSender\Api\SendCountRepositoryInterface" type="Avinash\EmailSender\Model\SendCountRepository"/>
+  <virtualType name="Avinash\EmailSender\Model\ResourceModel\SendCount\Grid\Collection">
+      <arguments>
+          <argument name="mainTable" xsi:type="string">emailsender_table</argument>
+          <argument name="eventPrefix" xsi:type="string">emailsender_table</argument>
+          <argument name="eventObject" xsi:type="string">emailsender_table</argument>
+          <argument name="resourceModel" xsi:type="string">Avinash\EmailSender\Model\ResourceModel\SendCount</argument>
+        </arguments>
+    </virtualType>
+    <type name="Magento\Framework\View\Element\UiComponent\DataProvider\CollectionFactory">
+        <arguments>
+            <argument name="collections" xsi:type="array">
+                <item name="entity_listing_data_source" xsi:type="string">Avinash\EmailSender\Model\ResourceModel\SendCount\Grid\Collection</item>
+            </argument>
+        </arguments>
+    </type>
+</config>

@@ -1,0 +1,115 @@
+<?php
+/**
+ * Saurav Kumar
+ *
+ * @category   Saurav
+ * @package    Avinash_EmailSender
+ * @author     Saurav Kumar
+ */
+
+// $block Avinash\EmailSender\Block\Adminhtml\EmailSender
+?>
+<div id="messages" style="display:none;">
+    <div class="messages">
+        <div class="message message-success success">
+        </div>
+    </div>
+</div>
+<form id="email-form" data-mage-init='{"validation": {}}'>
+    <fieldset class="fieldset">
+        <h3 class="email_heading"><?= $escaper->escapeHtml(__("SMTP MAIL BULK MAIL - SERVER")) ?></h3>
+        <input type="hidden" name="form_key" value="<?= $escaper->escapeHtml($block->getFormKey()) ?>" />
+        <div class="control">
+            <div class="field" required>
+                <label for="port"><?= $escaper->escapeHtml(__("Port")) ?></label>
+                <input type="text" id="port" name="port" required="true" data-validate="{'validate-number':true}" />
+            </div>
+            <div class="field">
+                <label for="send_to"><?= $escaper->escapeHtml(__("Send To (Test Email Id)")) ?></label>
+                <input type="text" id="send_to" name="send_to"/>
+                <p><?= $escaper->escapeHtml(__("You can add multiple email comma seprated.")) ?></p>
+            </div>
+            <div class="field" required>
+                <label for="tls"><?= $escaper->escapeHtml(__("TLS")) ?></label>
+                <select id="tls" name="tls" required="true">
+                    <option value=""><?= $escaper->escapeHtml(__("-- Please Select --")) ?></option>
+                    <option value="0"><?= $escaper->escapeHtml(__("No")) ?></option>
+                    <option value="1"><?= $escaper->escapeHtml(__("Yes")) ?></option>
+                </select>
+            </div>
+        </div>
+
+        <div class="control">
+            <div required>
+                <label for="server"><?= $escaper->escapeHtml(__("Server")) ?></label>
+                <input type="text" id="server" name="server" required="true" />
+            </div>
+            <div class="field" required>
+                <label for="username"><?= $escaper->escapeHtml(__("Username")) ?></label>
+                <input type="text" id="username" name="username" required="true" />
+            </div>
+            <div class="field" required>
+                <label for="password"><?= $escaper->escapeHtml(__("Password")) ?></label>
+                <input type="text" id="password" name="password" required="true" />
+            </div>
+        </div>
+
+        <div class="control">
+            <div required>
+                <label for="from_name"><?= $escaper->escapeHtml(__("From Name")) ?></label>
+                <input type="text" id="from_name" name="from_name" required="true" />
+            </div>
+            <div class="field" required>
+                <label for="from_email"><?= $escaper->escapeHtml(__("From Email")) ?></label>
+                <input type="text" id="from_email" name="from_email" required="true" />
+            </div>
+            <div class="field" required>
+                <label for="subject_line"><?= $escaper->escapeHtml(__("Subject Line")) ?></label>
+                <input type="text" id="subject_line" name="subject_line" required="true" />
+            </div>
+        </div>
+
+        <div class="control email_message">
+            <div class="field" required>
+                <label for="file_name"><?= $escaper->escapeHtml(__("File Name")) ?></label>
+                <input type="text" id="file_name" name="file_name" required="true" />
+            </div>
+            <div class="field" required>
+                <label for="send_limit"><?= $escaper->escapeHtml(__("Send Limit")) ?></label>
+                <input type="text" id="send_limit" name="send_limit" required="true"
+                    data-validate="{'validate-number':true}" />
+                <div class="send-count">
+                    <span class="total-count"><?= $escaper->escapeHtml(__("Total Count")) ?>: 0</span>,
+                    <span class="remain-count"><?= $escaper->escapeHtml(__("Remaining Count")) ?>: 0</span>
+                </div>
+            </div>
+            <div class="field" required>
+                <label for="message"><?= $escaper->escapeHtml(__("Message")) ?></label>
+                <textarea id="message" name="message" cols="15" rows="15" required="true"></textarea>
+                <div class="preview-email-temp">
+                    <button id="preview-temp" type="button">
+                        <?= $escaper->escapeHtml(__("Preview Template")) ?>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="submit">
+            <button id="email-form-submit" type="submit"><?= $escaper->escapeHtml(__("Send Now")) ?></button>
+        </div>
+    </fieldset>
+</form>
+
+<div id="preview-template" style="display:none;">
+</div>
+
+<script type="text/x-magento-init">
+    {
+        "#email-form": {
+            "validation": {},
+            "emailSender": {
+                "send_url": "<?= $escaper->escapeUrl($block->getUrl('emailsender/email/send', ['_secure' => true])) ?>"
+            }
+        }
+    }
+</script>

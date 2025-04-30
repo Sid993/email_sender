@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!-- 
+/**
+ * Saurav Kumar.
+ *
+ * @category  Saurav Kumar
+ * @package   Avinash_EmailSender
+ * @author    Saurav Kumar
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Menu/etc/menu.xsd">
+    <menu>
+        <add 
+            id="Avinash_EmailSender::emailsender"
+            title="Email Sender"
+            translate="title"
+            module="Avinash_EmailSender"
+            sortOrder="20"
+            dependsOnModule="Avinash_EmailSender"
+            resource="Avinash_EmailSender::emailsender"
+        />
+        <add 
+            id="Avinash_EmailSender::sendemail"
+            title="Send Email"
+            translate="title"
+            module="Avinash_EmailSender"
+            sortOrder="10"
+            parent="Avinash_EmailSender::emailsender"
+            action="emailsender/email/index"
+            resource="Avinash_EmailSender::sendemail"
+        />
+        <add 
+            id="Avinash_EmailSender::logs"
+            title="Check Logs"
+            translate="title"
+            module="Avinash_EmailSender"
+            sortOrder="20"
+            parent="Avinash_EmailSender::emailsender"
+            action="emailsender/log/index"
+            resource="Avinash_EmailSender::logs"
+        />
+        <add 
+            id="Avinash_EmailSender::senddata"
+            title="Send Data"
+            translate="title"
+            module="Avinash_EmailSender"
+            sortOrder="30"
+            parent="Avinash_EmailSender::emailsender"
+            action="emailsender/senddata/index"
+            resource="Avinash_EmailSender::senddata"
+        />
+    </menu>
+</config>

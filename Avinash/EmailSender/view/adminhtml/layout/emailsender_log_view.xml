@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Saurav Kumar.
+ *
+ * @category  Saurav Kumar
+ * @package   Avinash_EmailSender
+ * @author    Saurav Kumar
+ */
+-->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <css src="Avinash_EmailSender::css/log-style.css" />
+    </head>
+    <body>
+        <referenceContainer name="content">
+            <block class="Avinash\EmailSender\Block\Adminhtml\EmailSender" name="log_view"
+                template="Avinash_EmailSender::view.phtml" />
+        </referenceContainer>
+    </body>
+</page>

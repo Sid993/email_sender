@@ -1,0 +1,46 @@
+<?php
+
+/**
+ * Saurav Kumar.
+ *
+ * @category  Saurav Kumar
+ * @package   Avinash_EmailSender
+ * @author    Saurav Kumar
+ */
+
+$fileName = $block->getFileName();
+$fileName = str_replace('_', '/', $fileName);
+$path = $block->getRootDir();
+$file = $path . $fileName;
+// @codingStandardsIgnoreStart
+$content = file_get_contents($file);
+// @codingStandardsIgnoreEnd
+$postData = $block->getRequest()->getParams();
+$pageParam = "page/1";
+if (isset($postData['page']) && $postData['page'] != '') {
+    $pageParam = "page/" . $postData['page'];
+}
+?>
+<div class="back">
+    <a href="<?= /* @noEscape */
+                $block->getUrl('emailsender/log/index') . $pageParam; ?>"><?= $escaper->escapeHtmlAttr(__('Go Back')); ?></a>
+</div>
+<section class="admin__page-section">
+    <div class="admin__page-section-content">
+        <div class="admin__page-section-item-title">
+            <span class="title"><?= $escaper->escapeHtmlAttr($fileName); ?></span>
+        </div>
+        <div class="admin__page-section-item-content">
+            <div class="code-viewer-wrapper">
+                <code class="code-viewer">
+
+                    <?php
+                    echo '<pre class="pre-code-wrapper">';
+                    echo $escaper->escapeHtmlAttr($content);
+                    echo '</pre>';
+                    ?>
+                </code>
+            </div>
+        </div>
+    </div>
+</section>

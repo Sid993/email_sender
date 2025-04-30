@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- 
+/**
+ * Saurav Kumar
+ *
+ * @category   Saurav
+ * @package    Avinash_EmailSender
+ * @author     Saurav Kumar
+ */
+ -->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+  <head>
+    <css src="Avinash_EmailSender::css/style.css" />
+  </head>
+  <body>
+    <referenceContainer name="content">
+      <block template="emailSender.phtml" class="Avinash\EmailSender\Block\Adminhtml\EmailSender"
+        name="email_index_index" />
+    </referenceContainer>
+  </body>
+</page>

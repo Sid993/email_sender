@@ -1,0 +1,17 @@
+<?xml version="1.0" ?>
+<!-- 
+/**
+ * Saurav Kumar
+ *
+ * @category   Saurav
+ * @package    Avinash_EmailSender
+ * @author     Saurav Kumar
+ */
+ -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+	<module name="Avinash_EmailSender">
+		<sequence>
+			<module name="Magento_Email"/>
+		</sequence>
+	</module>
+</config>

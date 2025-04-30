@@ -1,0 +1,8 @@
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework-message-queue:etc/queue.xsd">
+    <broker topic="emailsender.massmail" exchange="magento-db" type="db">
+        <queue name="emailsender.massmail"
+               consumer="emailsender.massmail"
+               consumerInstance="Magento\Framework\MessageQueue\Consumer"
+               handler="Avinash\EmailSender\Model\Consumer::process"/>
+    </broker>
+</config>

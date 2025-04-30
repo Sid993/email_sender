@@ -1,0 +1,107 @@
+<?php
+/**
+ * Saurav Kumar
+ *
+ * @category   Saurav
+ * @package    Avinash_EmailSender
+ * @author     Saurav Kumar
+ */
+$logs = $block->getLogFiles();
+if (empty($logs['items'])) { ?>
+    <div class="message info empty"><div><?= $escaper->escapeHtml(__("No Log Have Found.")) ?></div></div>  
+  <?php } else {
+    ?>
+<section class="admin__page-section">    
+    <div class="admin__page-section-content">        
+        <div class="admin__page-section-item-content">
+            <table class="admin__table-primary">
+                <tr>
+                    <th><?= $escaper->escapeHtml(__("File Name")) ?></th>
+                    <th><?= $escaper->escapeHtml(__("File Path")) ?></th>
+                    <th><?= $escaper->escapeHtml(__("Size")) ?></th>
+                    <th><?= $escaper->escapeHtml(__("Last Updated")) ?></th>
+                    <th><?= $escaper->escapeHtml(__("Actions")) ?></th>
+                </tr>
+            <?php
+            $totalPages = $logs['totalPages'];
+            $page = $logs['page'];
+            $pageNumbers = min($totalPages, 9);
+            $pagesLinks = [];
+            $tmp = $pageNumbers;
+            if ($tmp < $page || $page > $pageNumbers) {
+                $tmp = 2;
+            }
+            for ($i = 1; $i <= $tmp; $i++) {
+                $pagesLinks[$i] = $i;
+            }
+            
+            if ($page >= $pageNumbers && $page <= ($totalPages - $pageNumbers + 2)) {
+                for ($i = $page - 3; $i <= $page + 3; $i++) {
+                    if ($i > 0 && $i < $totalPages) {
+                        $pagesLinks[$i] = $i;
+                    }
+                }
+            }
+            
+            $tmp = $totalPages - $pageNumbers + 1;
+            if ($tmp > $page - 2) {
+                $tmp = $totalPages - 1;
+            }
+            for ($i = $tmp; $i <= $totalPages; $i++) {
+                if ($i > 0) {
+                    $pagesLinks[$i] = $i;
+                }
+            }
+            $prev = 0;
+            $pageParam = '';
+            if ($page) {
+                $pageParam = "page/".$page;
+            }
+            $clearDataMsg = "Are you sure you want to clear data of this file?";
+            ?>
+            <?php foreach ($logs['items'] as $log) { ?>
+                <tr>
+                    <td><?= $escaper->escapeHtmlAttr($log['name']) ?></td>
+                    <td><?= $escaper->escapeHtmlAttr($log['subpath']) ?></td>                    
+                    <td><?= $escaper->escapeHtmlAttr($log['filesize']) ?></td>
+                    <td><?php $time  = $log['modTimeLong'];
+                            echo $escaper->escapeHtmlAttr(rtrim($time, '.')); ?></td>
+                    <td>
+                        <span class="action-children">
+                            <a href="<?= /* @noEscape */
+                            $block->previewLogFile($log['filesubpath']).$pageParam; ?>">View</a>
+                        </span>
+                        <span class="action-children">
+                            <a href="<?= /* @noEscape */ $block->downloadLogFiles($log['filesubpath']); ?>">Download</a>
+                        </span>
+                        <span class="action-children">
+                            <a href="<?= /* @noEscape */ $block->deleteLogFile($log['filesubpath']).$pageParam; ?>" 
+                            onclick='return confirm("<?= /* @noEscape */ $clearDataMsg; ?>");'>Clear Data</a>
+                        </span>
+                    </td>
+                </tr>
+            <?php } ?>
+            </table><br>
+           <div class="pagination-wrapper"><span><?= /* @noEscape */ "Page ".$page." of ".$totalPages; ?></span>
+            <nav class="pagination-container">
+                <?php foreach ($pagesLinks as $p) { ?>
+                    <?php if (($p - $prev) > 1) { ?>
+                        <a href="#" class="page-link-cls">...</a>
+                    <?php }
+                       $prev = $p;
+                    $styleActive = '';
+                    if ($p == $page) {
+                        $styleActive = 'active-page';
+                    }
+                    ?>
+                        <a <?= /* @noEscape */ $styleActive; ?>
+                         class="page-link-cls <?= /* @noEscape */ $styleActive ?>"
+                        href="<?= /* @noEscape */
+                        $block->getUrl('logfile/grid/index').'?page='.$p; ?>"><?= /* @noEscape */ $p; ?></a>
+                <?php } ?>
+            </nav>
+           </div>
+        </div>
+    </div>
+</section>
+<?php } ?>

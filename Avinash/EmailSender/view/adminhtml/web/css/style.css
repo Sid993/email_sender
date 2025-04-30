@@ -1,0 +1,65 @@
+.email_heading {
+    text-align: center;
+}
+
+.control {
+    display: flex;
+    justify-content: space-between;
+    margin: 20px;
+}
+
+input[type="text"],textarea,
+select {
+    width: 350px; /* Full width for inputs */
+    padding: 0.5rem; /* Padding for better usability */
+    border: 1px solid #ccc; /* Basic border */
+    border-radius: 4px; /* Rounded corners */
+}
+
+input[type="text"]:focus,textarea:focus,
+select:focus {
+    border-color: #007bff; /* Change border color on focus */
+    outline: none; /* Remove default outline */
+}
+
+label {
+    display: block; /* Ensures label is a block element */
+    margin-bottom: 0.5rem; /* Space between label and input */
+    font-weight: bold; /* Makes the label bold */
+}
+button {
+    background-color: #007bff;
+    color: white;
+    padding: 1rem 4rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1.4rem;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+button:hover {
+    background-color: #0056b3; /* Darker blue on hover */
+}
+
+button:active {
+    transform: scale(0.95); /* Slightly reduce size on click */
+    background-color: #004494; /* Even darker blue when active */
+}
+
+button:disabled {
+    background-color: #ccc; /* Gray background for disabled state */
+    color: #666; /* Darker text for disabled state */
+    cursor: not-allowed; /* Change cursor to not-allowed */
+}
+.submit {
+    text-align: center;
+}
+
+.preview-email-temp {
+    display: grid;
+}
+
+.modal-popup._inner-scroll .modal-inner-wrap {
+    width: 40%;
+}

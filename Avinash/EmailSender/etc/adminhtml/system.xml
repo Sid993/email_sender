@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Saurav Kumar.
+ *
+ * @category  Saurav Kumar
+ * @package   Avinash_EmailSender
+ * @author    Saurav Kumar
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../Config/etc/system_file.xsd">
+    <system>
+        <tab id="avinas" translate="label" sortOrder="10">
+            <label>Avinash</label>
+        </tab>
+        <section id="smtp" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1">
+            <label>SMTP Setting</label>
+            <tab>avinas</tab>
+            <resource>Avinash_EmailSender::config_setting</resource>
+            <group id="general" translate="label" type="text" sortOrder="1" showInDefault="1" showInWebsite="1">
+                <label>General Settings</label>
+                <field id="enable" translate="label comment" sortOrder="1" type="select" showInDefault="1" >
+                    <label>Enable</label>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <validate>required-entry</validate>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>
