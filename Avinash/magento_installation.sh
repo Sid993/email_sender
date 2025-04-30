@@ -121,3 +121,4 @@ sudo nano /etc/apache2/sites-available/000-default.conf
 
 php bin/magento setup:install --base-url="http://79.137.33.228/engagewave/pub" --db-host="localhost" --db-name="magento2" --db-user="root" --db-password="Avinash@508" --admin-firstname="admin" --admin-lastname="admin" --admin-email="sauravsidharth992@gmail.com" --admin-user="admin" --admin-password="admin123" --language="en_US" --currency="INR" --timezone="America/Chicago" --use-rewrites="1" --backend-frontname="admin" --search-engine=elasticsearch7 --elasticsearch-host="localhost" --elasticsearch-port=9200
 
+
