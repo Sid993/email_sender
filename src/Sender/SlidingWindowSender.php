@@ -181,13 +181,7 @@ final class SlidingWindowSender
 
     private function inFlight(): int
     {
-        $n = 0;
-        foreach ($this->conns as $c) {
-            if ($c->hasItem()) {
-                $n++;
-            }
-        }
-        return $n;
+        return count(array_filter($this->conns, static fn (SmtpConnection $c) => $c->hasItem()));
     }
 
     // -------------------------------------------------------------------- dispatch
@@ -200,13 +194,7 @@ final class SlidingWindowSender
                 return;
             }
             // Reuse an idle, already logged-in connection, or open a new one if the window allows.
-            $conn = null;
-            foreach ($this->conns as $c) {
-                if ($c->isIdle()) {
-                    $conn = $c;
-                    break;
-                }
-            }
+            $conn = array_find($this->conns, static fn (SmtpConnection $c) => $c->isIdle());
             if ($conn === null && count($this->conns) >= $this->windowLimit) {
                 return; // every connection is busy (or finishing a RSET/QUIT); wait for one
             }
@@ -223,13 +211,13 @@ final class SlidingWindowSender
     private function nextRetry(): ?array
     {
         $now = microtime(true);
-        foreach ($this->retry as $k => $r) {
-            if ($r['ready'] <= $now) {
-                unset($this->retry[$k]);
-                return $r;
-            }
+        $k = array_find_key($this->retry, static fn (array $r) => $r['ready'] <= $now);
+        if ($k === null) {
+            return null;
         }
-        return null;
+        $item = $this->retry[$k];
+        unset($this->retry[$k]);
+        return $item;
     }
 
     private function nextFromFile(): ?array

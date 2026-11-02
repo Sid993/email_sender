@@ -31,7 +31,7 @@ final class MessageBuilder
         $subject = $subjectPrefix . trim(str_replace(["\r", "\n"], ' ', $this->subject->render($data, false)));
         $html = $this->html->render($data, true);
 
-        $email = (new Email())
+        $email = new Email()
             ->from(new Address($this->smtp->fromEmail, $this->smtp->fromName))
             ->to(new Address($to))
             ->subject($subject)

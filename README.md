@@ -14,12 +14,25 @@ A responsive bulk email sender with genuine concurrent SMTP delivery. Each user 
 
 ## Requirements
 
-- Linux server / VPS
-- PHP **8.2+** with extensions: `openssl`, `mbstring`, `pdo_mysql`, `sodium`, `zip`, `xmlreader`, `dom`
+| Component | Version |
+|---|---|
+| PHP | **8.5** (tested on 8.5.12). Uses PHP 8.4/8.5 features, so 8.5 is the minimum. |
+| MySQL | **9.7 LTS** (recommended for production) or **26.10 Innovation**. 8.4 LTS also works. |
+| Dependencies | symfony/mime 8.1, openspout/openspout 5.13, egulias/email-validator 4 |
+| OS | Linux server / VPS, Nginx or Apache with PHP-FPM, Composer 2 |
+
+- PHP extensions: `openssl`, `mbstring`, `pdo_mysql`, `sodium`, `zip`, `xmlreader`, `dom`
 - `proc_open` must be allowed (it is by default; some shared hosts disable it)
-- MySQL 8 or MariaDB 10.5+
-- Composer
-- Nginx or Apache (with PHP-FPM)
+- MariaDB is not supported: the schema uses MySQL's `utf8mb4_0900_ai_ci` collation.
+
+On Ubuntu 24.04, PHP 8.5 is available from the `ondrej/php` PPA:
+
+```bash
+sudo add-apt-repository ppa:ondrej/php && sudo apt update
+sudo apt install php8.5-fpm php8.5-cli php8.5-mysql php8.5-mbstring php8.5-xml php8.5-zip
+```
+
+(`openssl`, `sodium` and `opcache` are built into these packages.) For MySQL 9.7 / 26.x, use Oracle's MySQL APT repository (dev.mysql.com/downloads/repo/apt).
 
 ## Installation
 
@@ -31,8 +44,10 @@ composer install --no-dev --optimize-autoloader
 
 cp .env.example .env
 php bin/generate-key.php          # paste the output line into .env as APP_KEY
+# edit the password at the bottom of database/schema.sql first: it creates the
+# database, the users table and an app account with only SELECT/INSERT/UPDATE rights
 mysql -u root -p < database/schema.sql
-# create a DB user and put its credentials in .env (DB_HOST, DB_NAME, DB_USER, DB_PASS)
+# put the same credentials in .env (DB_HOST=localhost uses the local socket)
 
 # storage must be writable by the PHP-FPM user (e.g. www-data)
 chown -R www-data:www-data storage
@@ -40,7 +55,7 @@ chmod -R 770 storage
 chmod +x bin/spawn-worker.sh
 ```
 
-Set `PHP_CLI_BINARY` in `.env` to the PHP command-line binary (`which php`, e.g. `/usr/bin/php8.3`). Under PHP-FPM, PHP cannot detect this by itself.
+Set `PHP_CLI_BINARY` in `.env` to the PHP command-line binary (`which php8.5`, e.g. `/usr/bin/php8.5`). Under PHP-FPM, PHP cannot detect this by itself.
 
 Cleanup of expired temporary data (cron, as the web user):
 
@@ -62,11 +77,13 @@ server {
     location ~ \.php$ {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.5-fpm.sock;
         fastcgi_read_timeout 300;      # large-file import on the last chunk
     }
 }
 ```
+
+MySQL 9 removed the old `mysql_native_password` method; accounts use `caching_sha2_password`, which PHP's mysqlnd driver supports. Connecting with `DB_HOST=localhost` (Unix socket) avoids the extra key exchange that this method needs over unencrypted TCP. For a remote database, enable TLS on the MySQL server.
 
 ### Apache
 

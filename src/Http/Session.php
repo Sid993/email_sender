@@ -32,7 +32,6 @@ final class Session
         ]);
         return [
             'use_strict_mode' => 1,
-            'use_only_cookies' => 1,
             'gc_maxlifetime' => $lifetime,
         ];
     }

@@ -38,7 +38,7 @@ final class RecipientImporter
         $reader = $this->openReader($sourceFile, $extension);
         $out = fopen($outFile . '.tmp', 'wb');
         $invalid = fopen($invalidFile, 'wb');
-        fputcsv($invalid, ['row', 'value', 'reason'], ',', '"', '\\');
+        fputcsv($invalid, ['row', 'value', 'reason'], ',', '"', '');
 
         $headers = null;
         $labels = [];
@@ -72,13 +72,13 @@ final class RecipientImporter
                     $email = trim($email, " \t\n\r\0\x0B<>;,");
                     if (!$this->validEmail($email)) {
                         $invalidCount++;
-                        fputcsv($invalid, [$rowNo, $email, $email === '' ? 'empty' : 'invalid format'], ',', '"', '\\');
+                        fputcsv($invalid, [$rowNo, $email, $email === '' ? 'empty' : 'invalid format'], ',', '"', '');
                         continue;
                     }
                     $key = unpack('J', hash('xxh64', strtolower($email), true))[1];
                     if (isset($seen[$key])) {
                         $duplicates++;
-                        fputcsv($invalid, [$rowNo, $email, 'duplicate'], ',', '"', '\\');
+                        fputcsv($invalid, [$rowNo, $email, 'duplicate'], ',', '"', '');
                         continue;
                     }
                     $seen[$key] = true;
@@ -131,19 +131,15 @@ final class RecipientImporter
     private function openReader(string $file, string $ext): CsvReader|XlsxReader|OdsReader
     {
         try {
-            if ($ext === 'xlsx') {
-                $o = new XlsxOptions();
-                $o->SHOULD_FORMAT_DATES = true;
-                $r = new XlsxReader($o);
-            } elseif ($ext === 'ods') {
-                $o = new OdsOptions();
-                $o->SHOULD_FORMAT_DATES = true;
-                $r = new OdsReader($o);
-            } else {
-                $o = new CsvOptions();
-                [$o->FIELD_DELIMITER, $o->ENCODING] = $this->sniffCsv($file);
-                $r = new CsvReader($o);
-            }
+            // OpenSpout 5: options are immutable value objects set through the constructor.
+            $r = match ($ext) {
+                'xlsx' => new XlsxReader(new XlsxOptions(SHOULD_FORMAT_DATES: true)),
+                'ods' => new OdsReader(new OdsOptions(SHOULD_FORMAT_DATES: true)),
+                default => (function () use ($file): CsvReader {
+                    [$delimiter, $encoding] = $this->sniffCsv($file);
+                    return new CsvReader(new CsvOptions(FIELD_DELIMITER: $delimiter, ENCODING: $encoding));
+                })(),
+            };
             $r->open($file);
             return $r;
         } catch (\Throwable $e) {
@@ -160,7 +156,7 @@ final class RecipientImporter
         $best = ',';
         $bestScore = -1;
         foreach ([',', ';', "\t", '|'] as $d) {
-            $counts = array_map(fn ($l) => count(str_getcsv($l, $d, '"', '\\')), array_filter($lines, 'strlen'));
+            $counts = array_map(fn ($l) => count(str_getcsv($l, $d, '"', '')), array_filter($lines, 'strlen'));
             if (!$counts) {
                 continue;
             }
@@ -228,6 +224,7 @@ final class RecipientImporter
             $v === null => '',
             $v instanceof \DateTimeInterface => $v->format('Y-m-d'),
             $v instanceof \DateInterval => $v->format('%H:%I:%S'),
+            is_array($v) => trim(implode('', array_map(static fn ($run) => $run->text ?? '', $v))), // rich text runs
             is_bool($v) => $v ? 'TRUE' : 'FALSE',
             is_float($v) && floor($v) == $v && abs($v) < 1e15 => (string) (int) $v,
             default => trim((string) $v),
@@ -236,12 +233,7 @@ final class RecipientImporter
 
     private function isBlankRow(array $cells): bool
     {
-        foreach ($cells as $c) {
-            if (trim((string) $c) !== '') {
-                return false;
-            }
-        }
-        return true;
+        return !array_any($cells, static fn ($c) => trim((string) $c) !== '');
     }
 
     private function validEmail(string $email): bool

@@ -192,9 +192,9 @@ final class CampaignController
         header('Content-Disposition: attachment; filename="failed-emails-' . date('Ymd-His') . '.csv"');
         $out = fopen('php://output', 'wb');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['email', 'status', 'smtp_code', 'error', 'attempts', 'time'], ',', '"', '\\');
+        fputcsv($out, ['email', 'status', 'smtp_code', 'error', 'attempts', 'time'], ',', '"', '');
         foreach ($rows as $r) {
-            fputcsv($out, [$r['email'], $r['status'], $r['code'] ?: '', $r['error'], $r['attempts'], date('Y-m-d H:i:s', $r['time'])], ',', '"', '\\');
+            fputcsv($out, [$r['email'], $r['status'], $r['code'] ?: '', $r['error'], $r['attempts'], date('Y-m-d H:i:s', $r['time'])], ',', '"', '');
         }
         fclose($out);
         exit;

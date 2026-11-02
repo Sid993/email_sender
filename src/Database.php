@@ -17,13 +17,16 @@ final class Database
     public static function pdo(): PDO
     {
         if (self::$pdo === null) {
+            // DB_HOST=localhost connects through the local Unix socket (fastest, and
+            // treated as secure by MySQL's caching_sha2_password authentication).
             $dsn = Config::get('DB_DSN') ?? sprintf(
                 'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-                Config::get('DB_HOST', '127.0.0.1'),
+                Config::get('DB_HOST', 'localhost'),
                 Config::int('DB_PORT', 3306),
                 Config::get('DB_NAME', 'bulk_mailer')
             );
-            self::$pdo = new PDO($dsn, Config::get('DB_USER'), Config::get('DB_PASS'), [
+            // PHP 8.4+: PDO::connect() returns the driver-specific class (Pdo\Mysql).
+            self::$pdo = PDO::connect($dsn, Config::get('DB_USER'), Config::get('DB_PASS'), [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,

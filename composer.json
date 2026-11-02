@@ -3,15 +3,19 @@
     "description": "Concurrent bulk email sender (PHP + MySQL)",
     "type": "project",
     "require": {
-        "php": ">=8.2",
-        "ext-openssl": "*",
+        "php": ">=8.5",
+        "ext-dom": "*",
         "ext-json": "*",
         "ext-mbstring": "*",
+        "ext-openssl": "*",
         "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
         "ext-sodium": "*",
-        "symfony/mime": "^7.0",
-        "openspout/openspout": "^4.24",
-        "egulias/email-validator": "^4.0"
+        "ext-xmlreader": "*",
+        "ext-zip": "*",
+        "egulias/email-validator": "^4.0",
+        "openspout/openspout": "^5.13",
+        "symfony/mime": "^8.1"
     },
     "autoload": {
         "psr-4": {
@@ -20,6 +24,7 @@
     },
     "config": {
         "optimize-autoloader": true,
-        "sort-packages": true
+        "sort-packages": true,
+        "platform-check": true
     }
 }

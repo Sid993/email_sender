@@ -53,6 +53,7 @@ final class SmtpSettings
     }
 
     /** @return list<string> validation errors */
+    #[\NoDiscard('Validation errors must be checked')]
     public function validate(): array
     {
         $e = [];

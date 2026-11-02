@@ -88,6 +88,7 @@ final class CampaignConfig
     }
 
     /** @return list<string> */
+    #[\NoDiscard('Validation errors must be checked')]
     public static function validateForSending(array $c): array
     {
         $errors = self::smtp($c)->validate();

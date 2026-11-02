@@ -75,7 +75,7 @@ final class AppController
         $import = $ws->readJson('import.json');
         $sample = $import['sample'] ?? [];
         $row = max(1, (int) Request::input('row', 1));
-        $data = $sample[$row - 1] ?? ($sample[0] ?? []);
+        $data = $sample[$row - 1] ?? array_first($sample) ?? [];
         $fields = $import['fields'] ?? ['email'];
 
         $subject = (new Renderer($c['subject']))->render($data, false);
