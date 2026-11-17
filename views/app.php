@@ -1,5 +1,5 @@
 <?php
-/** @var array $user @var string $csrf @var string $appName @var bool $smtpSupported @var int $uploadMaxMb @var int $chunkBytes */
+/** @var array $user @var string $csrf @var string $appName @var bool $smtpSupported */
 $title = $appName;
 require __DIR__ . '/partials/head.php';
 $e = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
@@ -7,6 +7,7 @@ $e = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
 <body>
 <header class="topbar">
     <span class="topbar-user">Signed in as <strong><?= $e($user['name']) ?></strong> <span class="text-muted d-none d-sm-inline">(<?= $e($user['email']) ?>)</span></span>
+    <?php if (!empty($user['is_admin'])): ?><a class="btn btn-link btn-sm p-0" href="/admin">Manage files</a><?php endif; ?>
     <form method="post" action="/logout" class="d-inline">
         <input type="hidden" name="_csrf" value="<?= $e($csrf) ?>">
         <button class="btn btn-link btn-sm p-0" type="submit">Log out</button>
@@ -40,12 +41,13 @@ $e = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
                         <input class="form-control" id="from_name" name="from_name" placeholder="Your Company">
                     </div>
                     <div class="field">
-                        <label for="file">File Name</label>
-                        <input class="form-control" type="file" id="file" data-chunk-bytes="<?= (int) $chunkBytes ?>" accept=".csv,.txt,.xlsx,.ods,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-                        <div class="hint">CSV or Excel (.xlsx), up to <?= (int) $uploadMaxMb ?> MB. First row = column names, one column must hold email addresses.</div>
-                        <div class="progress upload-progress d-none" id="uploadProgress" role="progressbar" aria-label="Upload progress">
-                            <div class="progress-bar" style="width:0%"></div>
+                        <label for="file_name">File Name</label>
+                        <div class="load-row">
+                            <input class="form-control" id="file_name" list="myFiles" placeholder="e.g. customers_nov.csv" autocapitalize="off" spellcheck="false" autocomplete="off">
+                            <button type="button" class="btn btn-outline-primary" id="btnLoad">Load File</button>
                         </div>
+                        <datalist id="myFiles"></datalist>
+                        <div class="hint">Enter the file name your admin shared with you.</div>
                         <div class="file-summary d-none" id="fileSummary"></div>
                     </div>
                 </div>
@@ -70,7 +72,7 @@ $e = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
                         <label for="send_limit">Send Limit</label>
                         <input class="form-control" type="number" min="1" step="1" id="send_limit" name="send_limit" placeholder="e.g. 10" data-keep-enabled>
                         <div class="hint" id="countLine">Total Count: 0, Remaining Count: 0</div>
-                        <div class="hint muted">Number of emails sent at the same time.</div>
+                        <div class="hint muted">Emails sent per Send Now click, all at the same time.</div>
                     </div>
                     <div class="field">
                         <button class="btn btn-link btn-sm p-0 advanced-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#advanced" aria-expanded="false" aria-controls="advanced">Advanced settings</button>
@@ -135,7 +137,7 @@ $e = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
                 <button class="btn btn-warning btn-sm" id="btnPause" type="button">Pause</button>
                 <button class="btn btn-success btn-sm" id="btnResume" type="button">Resume</button>
                 <button class="btn btn-outline-danger btn-sm" id="btnCancel" type="button">Cancel</button>
-                <button class="btn btn-outline-secondary btn-sm" id="btnNew" type="button">New Campaign</button>
+                <button class="btn btn-outline-secondary btn-sm" id="btnNew" type="button">Load another file</button>
             </div>
         </div>
 

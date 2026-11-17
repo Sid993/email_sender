@@ -88,6 +88,12 @@ textarea.message { min-height: 298px; resize: vertical; font-family: ui-monospac
 .chips .chip:hover { background: #cfe2ff; }
 .chips-label { font-size: 12px; color: var(--muted); line-height: 22px; margin-right: 2px; }
 
+/* File Name: load a shared file */
+.load-row { display: flex; gap: 6px; }
+.load-row .form-control { min-width: 0; }
+.load-row .btn { white-space: nowrap; border-radius: 3px; font-size: 14px; padding: 4px 12px; }
+.file-summary .counts { font-variant-numeric: tabular-nums; }
+
 /* upload */
 .upload-progress { height: 6px; margin-top: 8px; }
 .file-summary { margin-top: 8px; font-size: 13px; background: #f8f9fa; border: 1px solid #e3e6e9; border-radius: 4px; padding: 8px 10px; }
@@ -153,3 +159,21 @@ textarea.message { min-height: 298px; resize: vertical; font-family: ui-monospac
     .btn-send { width: 100%; }
     .dash-actions .btn { flex: 1 1 auto; }
 }
+
+/* ---------- admin: shared files ---------- */
+.admin-upload { border: 1px dashed var(--line); border-radius: 6px; padding: 14px 16px; margin-bottom: 22px; max-width: 760px; }
+.admin-label { display: block; font-weight: 700; margin-bottom: 6px; }
+.upload-list { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4px; font-size: 13px; }
+.upload-list li { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #eef0f2; padding: 3px 0; }
+.upload-list .up-name { font-weight: 600; word-break: break-all; }
+.upload-list .ok { color: var(--ok); }
+.upload-list .bad { color: var(--bad); }
+.admin-head .admin-search { max-width: 260px; }
+.admin-table { font-size: 13px; }
+.admin-table td { vertical-align: middle; }
+.admin-table td.fname { min-width: 180px; }
+.admin-table td.fname code { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.admin-table .num { font-variant-numeric: tabular-nums; }
+.admin-table .prog-cell { min-width: 170px; }
+.admin-table .assign { min-width: 200px; }
+.progress.mini { height: 6px; margin-bottom: 3px; }

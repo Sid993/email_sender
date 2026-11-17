@@ -1,4 +1,4 @@
-/* Bulk Mailer front-end: form, chunked upload, preview, test send, live dashboard. */
+/* Bulk Mailer front-end: form, load shared file, preview, test send, batch sending, live dashboard. */
 (() => {
     'use strict';
 
@@ -10,7 +10,7 @@
         'send_limit', 'test_to', 'max_retries', 'timeout', 'rate_per_minute', 'unsubscribe'];
     const ACTIVE = ['starting', 'running', 'pausing', 'cancelling'];
     const IN_PROGRESS = [...ACTIVE, 'paused', 'interrupted'];
-    const CHUNK_SIZE = Number(document.getElementById('file').dataset.chunkBytes) || 1024 * 1024;
+    const BATCH_ENDED = ['batch_done', 'batch_cancelled', 'completed'];
 
     const state = { import: null, status: null, hasPassword: false, lastFailedKey: '' };
     let pollTimer = null;
@@ -23,7 +23,6 @@
 
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const num = (n) => Number(n || 0).toLocaleString();
-    const randHex = (bytes) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
     function duration(sec) {
         if (sec == null || !isFinite(sec)) return '';
@@ -124,7 +123,8 @@
         if (!v.message.trim()) { bad.push('message'); msgs.push('Message is required.'); }
         if (forSending) {
             if (!/^\d+$/.test(v.send_limit) || +v.send_limit < 1) { bad.push('send_limit'); msgs.push('Send Limit must be at least 1.'); }
-            if (!state.import || state.import.purged) { bad.push('file'); msgs.push('Please upload a recipient file.'); }
+            if (!state.import) { bad.push('file_name'); msgs.push('Load your file first: enter its name under File Name and click Load File.'); }
+            else if (remainingNow() === 0) { msgs.push('Every recipient in this file has already been processed. Load another file to send more.'); }
         }
         markInvalid(bad);
         if (msgs.length) alertBox('danger', msgs.map(esc).join('<br>'));
@@ -132,7 +132,7 @@
     }
 
     form.addEventListener('input', (e) => {
-        if (e.target.id === 'file') return;
+        if (e.target.id === 'file_name') { e.target.classList.remove('is-invalid'); return; }
         e.target.classList.remove('is-invalid');
         scheduleSave();
     });
@@ -144,62 +144,44 @@
         }
     });
 
-    // ------------------------------------------------------------------ upload
+    // --------------------------------------------------------------- load file
 
-    $('#file').addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        await uploadFile(file);
-        e.target.value = '';
+    $('#btnLoad').addEventListener('click', loadFile);
+    $('#file_name').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); loadFile(); }
     });
 
-    async function uploadFile(file) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (!['csv', 'txt', 'xlsx', 'ods'].includes(ext)) {
-            alertBox('danger', 'Please choose a .csv or .xlsx file. (Old .xls files: open in Excel and “Save As” .xlsx.)');
+    async function loadFile() {
+        const input = $('#file_name');
+        const name = input.value.trim();
+        if (!name) {
+            markInvalid(['file_name']);
+            alertBox('danger', 'Enter the file name your admin shared with you.');
             return;
         }
-        const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
-        const id = randHex(16);
-        const bar = $('#uploadProgress');
-        const fill = bar.firstElementChild;
-        bar.classList.remove('d-none');
-        fill.classList.remove('progress-bar-striped', 'progress-bar-animated');
-        $('#btnSend').disabled = true;
-        $('#fileSummary').classList.add('d-none');
-
+        const btn = $('#btnLoad');
+        busy(btn, true, 'Loading…');
         try {
-            let data;
-            for (let i = 0; i < total; i++) {
-                const fd = new FormData();
-                fd.append('upload_id', id);
-                fd.append('index', i);
-                fd.append('total', total);
-                fd.append('name', file.name);
-                fd.append('size', file.size);
-                fd.append('chunk', file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE), 'chunk');
-                if (i === total - 1) {
-                    fill.style.width = '100%';
-                    fill.textContent = 'Processing…';
-                    fill.classList.add('progress-bar-striped', 'progress-bar-animated');
-                }
-                data = await api('/api/upload/chunk', { formData: fd });
-                if (i < total - 1) fill.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
-            }
-            setImport(data.import);
-            const imp = data.import;
-            const skipped = imp.invalid + imp.duplicates;
-            alertBox('success', `<strong>${esc(imp.file_name)}</strong> imported: ${num(imp.total)} recipients` +
-                (skipped ? ` (${num(imp.invalid)} invalid and ${num(imp.duplicates)} duplicate rows skipped)` : '') + '.', 8000);
+            const d = await api('/api/file/load', { body: { name } });
+            setImport(d.import);
             applyStatus(null);
+            const p = d.import.progress;
+            alertBox('success', `<strong>${esc(d.import.file_name)}</strong> loaded: ${num(d.import.total)} recipients` +
+                (p && p.remaining < p.total ? `, ${num(p.remaining)} still to send` : '') + '.', 8000);
         } catch (err) {
+            markInvalid(['file_name']);
             alertBox('danger', esc(err.message));
         } finally {
-            bar.classList.add('d-none');
-            fill.style.width = '0%';
-            fill.textContent = '';
+            busy(btn, false);
             refreshFormLock();
         }
+    }
+
+    async function loadMyFiles() {
+        try {
+            const d = await api('/api/file/mine', { method: 'GET' });
+            $('#myFiles').innerHTML = d.files.map((f) => `<option value="${esc(f)}"></option>`).join('');
+        } catch { /* suggestions are optional */ }
     }
 
     function setImport(imp) {
@@ -212,21 +194,19 @@
             updateCountLine();
             return;
         }
-        const skipped = imp.invalid + imp.duplicates;
+        if (!$('#file_name').value) $('#file_name').value = imp.file_name;
         box.innerHTML = `<div class="fname">${esc(imp.file_name)}</div>
-            <div>${num(imp.total)} recipients${skipped ? ` · ${num(imp.invalid)} invalid · ${num(imp.duplicates)} duplicates skipped` : ''}
-            · email column: <code>${esc(imp.email_field)}</code></div>
+            <div>${num(imp.total)} recipients · email column: <code>${esc(imp.email_field)}</code></div>
+            <div class="counts" id="fileCounts"></div>
             <div class="mt-1 d-flex gap-3 flex-wrap">
-              ${skipped && !imp.purged ? '<a href="/api/upload/skipped">Download skipped rows</a>' : ''}
-              ${imp.purged ? '<span class="muted">Recipient data was cleared after the campaign finished.</span>' : ''}
-              <button type="button" class="btn btn-link p-0 text-danger" id="btnRemoveFile">Remove file</button>
+              <button type="button" class="btn btn-link p-0 text-danger" id="btnRemoveFile">Unload file</button>
             </div>`;
         box.classList.remove('d-none');
         $('#btnRemoveFile').addEventListener('click', removeFile);
 
         chips.innerHTML = '<span class="chips-label">Insert field:</span>' +
             imp.fields.map((f) => `<button type="button" class="chip" data-field="${esc(f)}">{{${esc(f)}}}</button>`).join('');
-        chips.classList.toggle('d-none', imp.purged);
+        chips.classList.remove('d-none');
         updateCountLine();
     }
 
@@ -235,16 +215,29 @@
             await api('/api/campaign/reset');
             setImport(null);
             applyStatus(null);
+            $('#file_name').value = '';
         } catch (err) {
             alertBox('danger', esc(err.message));
         }
     }
 
-    function updateCountLine() {
+    /** Counts for the loaded file: from the live batch status, else from the file's saved progress. */
+    function fileCounts() {
         const s = state.status;
-        const total = s ? s.total : (state.import && !state.import.purged ? state.import.total : 0);
-        const remaining = s ? s.remaining : total;
-        $('#countLine').textContent = `Total Count: ${num(total)}, Remaining Count: ${num(remaining)}`;
+        if (s && state.import && s.file_name === state.import.file_name) return s;
+        if (state.import) return state.import.progress || { total: state.import.total, sent: 0, failed: 0, unknown: 0, remaining: state.import.total };
+        return null;
+    }
+
+    function remainingNow() { const c = fileCounts(); return c ? c.remaining : 0; }
+
+    function updateCountLine() {
+        const c = fileCounts();
+        $('#countLine').textContent = `Total Count: ${num(c ? c.total : 0)}, Remaining Count: ${num(c ? c.remaining : 0)}`;
+        const el = $('#fileCounts');
+        if (el && c) {
+            el.textContent = `Sent ${num(c.sent)} · Failed ${num(c.failed + (c.unknown || 0))} · Remaining ${num(c.remaining)}`;
+        }
     }
 
     // personalization chips insert at the cursor (subject or message, whichever was last used)
@@ -282,12 +275,12 @@
             $('#pvSubject').textContent = d.subject || '(no subject)';
             $('#pvFrame').srcdoc = d.html || '<p style="font-family:sans-serif;color:#888">(empty message)</p>';
             $('#pvText').textContent = d.text;
-            $('#pvRowLabel').textContent = d.rows ? `Row ${d.row} of first ${d.rows} — ${d.data.email || ''}` : 'No file uploaded – placeholders are shown empty';
+            $('#pvRowLabel').textContent = d.rows ? `Row ${d.row} of first ${d.rows} — ${d.data.email || ''}` : 'No file loaded – placeholders are shown empty';
             $('#pvPrev').disabled = !d.rows || d.row <= 1;
             $('#pvNext').disabled = !d.rows || d.row >= d.rows;
             const warn = $('#pvWarn');
             if (d.unknown_fields.length) {
-                warn.innerHTML = `These placeholders are not columns in the uploaded file and will be empty: ${d.unknown_fields.map((f) => `<code>{{${esc(f)}}}</code>`).join(', ')}`;
+                warn.innerHTML = `These placeholders are not columns in the loaded file and will be empty: ${d.unknown_fields.map((f) => `<code>{{${esc(f)}}}</code>`).join(', ')}`;
                 warn.classList.remove('d-none');
             } else warn.classList.add('d-none');
             if (open) previewModal.show();
@@ -328,9 +321,9 @@
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         if (!validate(true)) return;
-        const total = state.import.total;
-        const limit = +form.elements.send_limit.value;
-        if (!confirm(`Send this email to ${num(total)} recipients, ${num(limit)} at a time?`)) return;
+        const remaining = remainingNow();
+        const batch = Math.min(+form.elements.send_limit.value, remaining);
+        if (!confirm(`Send to the next ${num(batch)} recipient(s) of ${state.import.file_name}? ${num(remaining - batch)} will remain for later.`)) return;
         const btn = $('#btnSend');
         busy(btn, true, 'Starting…');
         try {
@@ -342,6 +335,7 @@
             $('#dashboard').scrollIntoView({ behavior: 'smooth' });
         } catch (err) {
             if (err.data?.errors) markInvalidFromServer(err.data.errors);
+            if (err.data?.unloaded) { setImport(null); applyStatus(null); loadMyFiles(); }
             alertBox('danger', esc(err.message));
         } finally {
             busy(btn, false);
@@ -374,17 +368,18 @@
         control('resume', e.currentTarget, extra);
     });
     $('#btnCancel').addEventListener('click', (e) => {
-        if (confirm('Cancel this campaign? Emails already sent cannot be recalled; the remaining recipients will not be sent.')) {
+        if (confirm('Cancel this batch? Emails already sent cannot be recalled. Recipients this batch did not reach stay in Remaining for your next Send Now.')) {
             control('cancel', e.currentTarget);
         }
     });
     $('#btnNew').addEventListener('click', async (e) => {
-        if (!confirm('Clear this campaign and its results to prepare a new one?')) return;
+        if (!confirm('Unload this file? Its progress is kept on the server, so loading it again continues where you stopped.')) return;
         busy(e.currentTarget, true);
         try {
             await api('/api/campaign/reset');
             setImport(null);
             applyStatus(null);
+            $('#file_name').value = '';
         } catch (err) {
             alertBox('danger', esc(err.message));
         } finally {
@@ -398,7 +393,8 @@
         clearTimeout(pollTimer);
         try {
             const d = await api('/api/campaign/status', { method: 'GET' });
-            if (d.import && JSON.stringify(d.import) !== JSON.stringify(state.import)) setImport(d.import);
+            if (!d.import && state.import) setImport(null);
+            else if (d.import && JSON.stringify(d.import) !== JSON.stringify(state.import)) setImport(d.import);
             applyStatus(d.status);
         } catch { /* keep polling; a transient error shouldn't stop the dashboard */ }
         if (state.status && ACTIVE.includes(state.status.state)) {
@@ -412,7 +408,8 @@
     const BADGES = {
         starting: ['secondary', 'Starting…'], running: ['primary', 'Sending'], pausing: ['warning', 'Pausing…'],
         paused: ['warning', 'Paused'], cancelling: ['danger', 'Cancelling…'], cancelled: ['dark', 'Cancelled'],
-        completed: ['success', 'Completed'], interrupted: ['danger', 'Interrupted'],
+        completed: ['success', 'File complete'], interrupted: ['danger', 'Interrupted'],
+        batch_done: ['success', 'Batch complete'], batch_cancelled: ['secondary', 'Batch cancelled'],
     };
 
     function applyStatus(s) {
@@ -439,7 +436,7 @@
         $('#stFailed').textContent = num(s.failed);
         $('#stUnknown').textContent = s.unknown ? `+ ${num(s.unknown)} unknown` : '';
         $('#stRemaining').textContent = num(s.remaining);
-        $('#stCancelled').textContent = s.cancelled ? `${num(s.cancelled)} cancelled` : '';
+        $('#stCancelled').textContent = s.batch_unsent ? `${num(s.batch_unsent)} returned from cancelled batch` : '';
 
         const total = Math.max(1, s.total);
         const done = s.sent + s.failed + s.unknown;
@@ -447,21 +444,25 @@
         $('#pFailWrap').style.width = `${((s.failed + s.unknown) / total) * 100}%`;
         $('#progressLabel').textContent = `${Math.floor((done / total) * 1000) / 10}% processed (${num(done)} of ${num(s.total)})`;
         $('#rateLabel').textContent = ACTIVE.includes(s.state) && s.rate_per_min
-            ? `${num(s.rate_per_min)} emails/min${s.eta_seconds ? ` · about ${duration(s.eta_seconds)} left` : ''}` : '';
+            ? `${num(s.rate_per_min)} emails/min${s.eta_seconds ? ` · about ${duration(s.eta_seconds)} left in this batch` : ''}` : '';
 
         const slots = s.window_limit || s.effective_limit || s.limit;
-        const batches = s.limit ? Math.ceil((s.dispatched || 0) / s.limit) : 0;
+        const batchNo = s.batch_no ? `Batch ${num(s.batch_no)}` : 'Batch';
+        const batchCount = `${num(s.batch_done || 0)} of ${num(s.batch_size || 0)}`;
+        const took = duration((s.finished_at || s.updated_at) - s.started_at);
         let line;
         switch (s.state) {
-            case 'starting': line = 'Starting the sending process…'; break;
-            case 'running': line = `<strong>${num(s.in_flight_count)}</strong> of ${num(slots)} slots sending now · ${num(s.dispatched)} sends dispatched (≈ ${num(batches)} batches of ${num(s.limit)})` +
+            case 'starting': line = `${batchNo}: starting the sending process…`; break;
+            case 'running': line = `${batchNo}: <strong>${batchCount}</strong> done · <strong>${num(s.in_flight_count)}</strong> of ${num(slots)} slots sending now` +
                 (s.retry_waiting ? ` · ${num(s.retry_waiting)} waiting to retry` : ''); break;
-            case 'pausing': line = `Pausing: waiting for ${num(s.in_flight_count)} in-flight email(s) to finish…`; break;
-            case 'cancelling': line = `Cancelling: waiting for ${num(s.in_flight_count)} in-flight email(s) to finish…`; break;
-            case 'paused': line = `Paused. Nothing is being sent. ${num(s.remaining)} remaining — change Send Limit if needed and click Resume.`; break;
-            case 'interrupted': line = 'The sending process stopped unexpectedly. Click Resume to continue where it left off.'; break;
-            case 'completed': line = `Finished in ${duration((s.finished_at || s.updated_at) - s.started_at)}.`; break;
-            case 'cancelled': line = `Cancelled. ${num(s.cancelled)} recipient(s) were not sent.`; break;
+            case 'pausing': line = `${batchNo}: pausing, waiting for ${num(s.in_flight_count)} in-flight email(s) to finish…`; break;
+            case 'cancelling': line = `${batchNo}: cancelling, waiting for ${num(s.in_flight_count)} in-flight email(s) to finish…`; break;
+            case 'paused': line = `${batchNo} paused at ${batchCount}. Nothing is being sent. Change Send Limit if needed and click Resume.`; break;
+            case 'interrupted': line = `${batchNo}: the sending process stopped unexpectedly. Click Resume to continue where it left off.`; break;
+            case 'batch_done': line = `${batchNo} complete: ${batchCount} processed in ${took}. <strong>${num(s.remaining)}</strong> remaining. Click Send Now for the next batch.`; break;
+            case 'batch_cancelled': line = `${batchNo} cancelled after ${batchCount}. ${num(s.batch_unsent)} recipient(s) of this batch went back to Remaining (${num(s.remaining)} now).`; break;
+            case 'completed': line = `${batchNo} complete. Every recipient in this file has been processed.`; break;
+            case 'cancelled': line = 'Cancelled.'; break;
             default: line = '';
         }
         $('#batchLine').innerHTML = line;
@@ -476,7 +477,7 @@
         show('#btnPause', ['starting', 'running'].includes(s.state));
         show('#btnResume', ['paused', 'interrupted'].includes(s.state));
         show('#btnCancel', IN_PROGRESS.includes(s.state) && s.state !== 'cancelling');
-        show('#btnNew', ['completed', 'cancelled'].includes(s.state));
+        show('#btnNew', [...BATCH_ENDED, 'cancelled'].includes(s.state));
 
         const failedKey = `${s.failed}:${s.unknown}`;
         if (failedKey !== state.lastFailedKey) {
@@ -540,8 +541,10 @@
             const d = await api('/api/state', { method: 'GET' });
             fillForm(d.config);
             setImport(d.import);
-            applyStatus(d.status);
+            applyStatus(d.import ? d.status : null);
+            if (d.notice) alertBox('warning', esc(d.notice));
             if (d.status && ACTIVE.includes(d.status.state)) poll();
+            loadMyFiles();
         } catch (err) {
             alertBox('danger', esc(err.message));
         }

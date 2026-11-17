@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 use App\Config;
 use App\Http\Controllers\AppController;
+use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CampaignController;
-use App\Http\Controllers\UploadController;
+use App\Http\Controllers\FileController;
 use App\Http\Request;
 use App\Http\Response;
 
@@ -34,9 +35,17 @@ $routes = [
     'POST /api/preview' => [AppController::class, 'preview'],
     'POST /api/test-send' => [AppController::class, 'testSend'],
 
-    'POST /api/upload/chunk' => [UploadController::class, 'chunk'],
-    'POST /api/upload/remove' => [UploadController::class, 'remove'],
-    'GET /api/upload/skipped' => [UploadController::class, 'invalidRows'],
+    // Shared files: employees load the file their admin assigned to them.
+    'POST /api/file/load' => [FileController::class, 'load'],
+    'GET /api/file/mine' => [FileController::class, 'mine'],
+
+    // Admin: upload recipient files to the server and assign them.
+    'GET /admin' => [AdminController::class, 'page'],
+    'GET /api/admin/files' => [AdminController::class, 'files'],
+    'POST /api/admin/upload/chunk' => [AdminController::class, 'uploadChunk'],
+    'POST /api/admin/files/assign' => [AdminController::class, 'assign'],
+    'POST /api/admin/files/delete' => [AdminController::class, 'delete'],
+    'GET /api/admin/files/skipped' => [AdminController::class, 'skipped'],
 
     'POST /api/campaign/start' => [CampaignController::class, 'start'],
     'POST /api/campaign/pause' => [CampaignController::class, 'pause'],

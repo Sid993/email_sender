@@ -30,4 +30,22 @@ final class Guard
             Response::redirect('/login');
         }
     }
+
+    /** Like api(), and the user must be an admin. */
+    public static function admin(bool $readOnly = false): Workspace
+    {
+        $ws = self::api($readOnly);
+        if (!Auth::isAdmin()) {
+            Response::error('Only an admin can do this.', 403);
+        }
+        return $ws;
+    }
+
+    public static function adminPage(): void
+    {
+        self::page();
+        if (!Auth::isAdmin()) {
+            Response::redirect('/');
+        }
+    }
 }

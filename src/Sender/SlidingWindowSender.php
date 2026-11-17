@@ -7,6 +7,7 @@ namespace App\Sender;
 use App\Mail\MessageBuilder;
 use App\Mail\SmtpConnection;
 use App\Mail\SmtpSettings;
+use App\Storage\SharedFiles;
 use App\Storage\Workspace;
 
 /**
@@ -23,6 +24,11 @@ use App\Storage\Workspace;
  * - Transient errors are retried with exponential backoff + jitter without holding a slot.
  * - Fatal errors (login, TLS, rejected sender, unreachable server) pause the campaign.
  * - Pause / Cancel are read from the control file on every loop pass.
+ *
+ * Batches: each Send Now processes at most `batch_size` recipients (the Send Limit) and
+ * then stops; the rest of the file stays for the next click. Every log record of a
+ * batch carries its id ("b"), so a paused or crashed batch resumes with the right count,
+ * and recipients a cancelled batch did not reach go back to the remaining pool.
  */
 final class SlidingWindowSender
 {
@@ -38,6 +44,11 @@ final class SlidingWindowSender
     private int $maxAttempts;
     private float $minInterval;   // from "max emails per minute" (0 = no rate limit)
     private int $total;
+    private int $fileId;
+    private string $batchId;
+    private int $quota;           // recipients this batch may take (the Send Limit at Send Now)
+    private int $batchTaken = 0;  // recipients taken into this batch so far
+    private int $batchFinal = 0;  // of those, how many reached a final result
 
     /** One byte per recipient: 0 pending, S sent, F failed, U unknown, R in flight / retrying */
     private string $state;
@@ -81,6 +92,9 @@ final class SlidingWindowSender
         $rate = (int) ($job['rate_per_minute'] ?? 0);
         $this->minInterval = $rate > 0 ? 60.0 / $rate : 0.0;
         $this->total = (int) $job['total'];
+        $this->fileId = (int) $job['shared_file_id'];
+        $this->batchId = (string) $job['id'];
+        $this->quota = max(1, (int) ($job['batch_size'] ?? $job['limit']));
         $this->state = str_repeat('0', $this->total);
         $this->startedAt = (float) ($job['started_at'] ?? microtime(true));
     }
@@ -92,12 +106,13 @@ final class SlidingWindowSender
 
     public function run(): string
     {
-        $this->log = fopen($this->ws->path('results.log'), 'a+b');
-        $this->recover();
-        $this->recipients = fopen($this->ws->path('recipients.ndjson'), 'rb');
-        if ($this->recipients === false) {
-            throw new \RuntimeException('Recipient data is missing. Please upload the file again.');
+        $recipientsPath = SharedFiles::path($this->fileId, 'recipients.ndjson');
+        if (!is_file($recipientsPath)) {
+            throw new \RuntimeException('This file is no longer on the server. Ask your admin to upload it again.');
         }
+        $this->log = fopen(SharedFiles::path($this->fileId, 'results.log'), 'a+b');
+        $this->recover();
+        $this->recipients = fopen($recipientsPath, 'rb');
         $this->address = $this->smtp->resolveAddress();
         $this->writeStatus('running', true);
 
@@ -108,7 +123,7 @@ final class SlidingWindowSender
             }
 
             $inFlight = $this->inFlight();
-            if ($inFlight === 0 && ($this->stopping || ($this->fileDone && !$this->retry))) {
+            if ($inFlight === 0 && ($this->stopping || $this->batchFinished())) {
                 break;
             }
 
@@ -120,9 +135,10 @@ final class SlidingWindowSender
         fclose($this->recipients);
 
         $final = match (true) {
-            $this->stopReason === 'cancel' => 'cancelled',
+            $this->stopReason === 'cancel' => 'batch_cancelled',
             $this->stopReason !== '' => 'paused',
-            default => 'completed',
+            $this->remaining() === 0 => 'completed',
+            default => 'batch_done',
         };
         $this->writeStatus($final, true);
         fclose($this->log);
@@ -208,21 +224,50 @@ final class SlidingWindowSender
         }
     }
 
+    /**
+     * A recipient whose retry time has come. Retries of this batch always qualify; a retry
+     * left over from an earlier (cancelled or failed) batch joins this batch only while
+     * the batch still has room.
+     */
     private function nextRetry(): ?array
     {
         $now = microtime(true);
-        $k = array_find_key($this->retry, static fn (array $r) => $r['ready'] <= $now);
-        if ($k === null) {
-            return null;
+        foreach ($this->retry as $k => $r) {
+            if ($r['ready'] > $now || (empty($r['in_batch']) && $this->batchTaken >= $this->quota)) {
+                continue;
+            }
+            unset($this->retry[$k]);
+            if (empty($r['in_batch'])) {
+                $r['in_batch'] = true;
+                $this->batchTaken++;
+            }
+            return $r;
         }
-        $item = $this->retry[$k];
-        unset($this->retry[$k]);
-        return $item;
+        return null;
+    }
+
+    /** The batch is over when its quota is used up (or the file is exhausted) and nothing of it is left to retry. */
+    private function batchFinished(): bool
+    {
+        foreach ($this->retry as $r) {
+            if (!empty($r['in_batch'])) {
+                return false;
+            }
+        }
+        if ($this->batchTaken >= $this->quota) {
+            return true;
+        }
+        return $this->fileDone && !$this->retry;
+    }
+
+    private function remaining(): int
+    {
+        return max(0, $this->total - $this->sent - $this->failed - $this->unknown);
     }
 
     private function nextFromFile(): ?array
     {
-        while (!$this->fileDone) {
+        while (!$this->fileDone && $this->batchTaken < $this->quota) {
             $line = fgets($this->recipients);
             if ($line === false) {
                 $this->fileDone = true;
@@ -232,12 +277,13 @@ final class SlidingWindowSender
             if ($idx >= $this->total || $this->state[$idx] !== '0') {
                 continue; // already handled in a previous run, or waiting in retry
             }
+            $this->batchTaken++;
             $row = json_decode($line, true);
             if (!is_array($row) || empty($row['e'])) {
                 $this->finish($idx, '', 'F', 0, 'Corrupt recipient row', 0);
                 continue;
             }
-            return ['idx' => $idx, 'email' => $row['e'], 'data' => $row['d'] ?? [], 'attempt' => 0];
+            return ['idx' => $idx, 'email' => $row['e'], 'data' => $row['d'] ?? [], 'attempt' => 0, 'in_batch' => true];
         }
         return null;
     }
@@ -255,7 +301,7 @@ final class SlidingWindowSender
 
         // Write-ahead: if the process dies now, this recipient is reported as "unknown",
         // never silently re-sent.
-        $this->append(['i' => $item['idx'], 'e' => $item['email'], 's' => 'sending', 'a' => $item['attempt']]);
+        $this->append(['i' => $item['idx'], 'e' => $item['email'], 's' => 'sending', 'a' => $item['attempt'], 'b' => $this->batchId]);
         $this->state[$item['idx']] = 'R';
         $this->dispatched++;
         $this->lastDispatch = microtime(true);
@@ -349,18 +395,23 @@ final class SlidingWindowSender
         $this->retry[] = $item;
         $this->state[$item['idx']] = 'R';
         // Logged so that a restart retries it instead of reporting "unknown".
-        $this->append(['i' => $item['idx'], 'e' => $item['email'], 's' => 'retry', 'a' => $item['attempt'], 'c' => $r['code'], 'm' => $r['message']]);
+        $this->append(['i' => $item['idx'], 'e' => $item['email'], 's' => 'retry', 'a' => $item['attempt'], 'c' => $r['code'], 'm' => $r['message'], 'b' => $this->batchId]);
     }
 
-    private function finish(int $idx, string $email, string $s, int $code, string $message, int $attempts): void
+    /** Records a final result. $batchId: the batch it belongs to (default: this one). */
+    private function finish(int $idx, string $email, string $s, int $code, string $message, int $attempts, ?string $batchId = null): void
     {
+        $batchId ??= $this->batchId;
         $this->state[$idx] = $s;
         match ($s) {
             'S' => $this->sent++,
             'F' => $this->failed++,
             'U' => $this->unknown++,
         };
-        $this->append(['i' => $idx, 'e' => $email, 's' => ['S' => 'sent', 'F' => 'failed', 'U' => 'unknown'][$s], 'c' => $code, 'm' => $message, 'a' => $attempts]);
+        if ($batchId === $this->batchId) {
+            $this->batchFinal++;
+        }
+        $this->append(['i' => $idx, 'e' => $email, 's' => ['S' => 'sent', 'F' => 'failed', 'U' => 'unknown'][$s], 'c' => $code, 'm' => $message, 'a' => $attempts, 'b' => $batchId]);
     }
 
     private function fatal(string $message): void
@@ -432,17 +483,25 @@ final class SlidingWindowSender
         }
     }
 
-    /** Rebuilds counters from results.log (resume / crash recovery). */
+    /**
+     * Rebuilds counters from the file's results log: totals across all batches, plus how
+     * many recipients this batch already took and finished (resume / crash recovery).
+     */
     private function recover(): void
     {
         $last = [];
+        $inBatch = [];
         rewind($this->log);
         while (($line = fgets($this->log)) !== false) {
             $r = json_decode($line, true);
             if (is_array($r) && isset($r['i'])) {
                 $last[(int) $r['i']] = $r;
+                if (($r['b'] ?? null) === $this->batchId) {
+                    $inBatch[(int) $r['i']] = true;
+                }
             }
         }
+        $this->batchTaken = count($inBatch);
         $retryIdx = array_keys(array_filter($last, static fn ($x) => ($x['s'] ?? '') === 'retry'));
         $data = $retryIdx ? $this->loadRecipientData($retryIdx) : [];
         foreach ($last as $idx => $r) {
@@ -453,22 +512,25 @@ final class SlidingWindowSender
                 case 'sent':
                     $this->state[$idx] = 'S';
                     $this->sent++;
+                    $this->batchFinal += isset($inBatch[$idx]) ? 1 : 0;
                     break;
                 case 'failed':
                     $this->state[$idx] = 'F';
                     $this->failed++;
+                    $this->batchFinal += isset($inBatch[$idx]) ? 1 : 0;
                     break;
                 case 'unknown':
                     $this->state[$idx] = 'U';
                     $this->unknown++;
+                    $this->batchFinal += isset($inBatch[$idx]) ? 1 : 0;
                     break;
                 case 'sending':
                     // The process died mid-send: the server may already have accepted it.
-                    $this->finish($idx, (string) ($r['e'] ?? ''), 'U', 0, 'Sending was interrupted; delivery status unknown (not re-sent to avoid a duplicate).', (int) ($r['a'] ?? 1));
+                    $this->finish($idx, (string) ($r['e'] ?? ''), 'U', 0, 'Sending was interrupted; delivery status unknown (not re-sent to avoid a duplicate).', (int) ($r['a'] ?? 1), (string) ($r['b'] ?? ''));
                     break;
                 case 'retry':
                     $this->state[$idx] = 'R';
-                    $this->retry[] = ['idx' => $idx, 'email' => (string) $r['e'], 'data' => $data[$idx] ?? ['email' => $r['e']], 'attempt' => (int) ($r['a'] ?? 0), 'ready' => 0.0];
+                    $this->retry[] = ['idx' => $idx, 'email' => (string) $r['e'], 'data' => $data[$idx] ?? ['email' => $r['e']], 'attempt' => (int) ($r['a'] ?? 0), 'ready' => 0.0, 'in_batch' => isset($inBatch[$idx])];
                     break;
             }
         }
@@ -479,7 +541,7 @@ final class SlidingWindowSender
     {
         $want = array_flip($indexes);
         $out = [];
-        $fh = fopen($this->ws->path('recipients.ndjson'), 'rb');
+        $fh = @fopen(SharedFiles::path($this->fileId, 'recipients.ndjson'), 'rb');
         if ($fh === false) {
             return [];
         }
@@ -522,9 +584,10 @@ final class SlidingWindowSender
         $window = min(60.0, max(1.0, $now - $this->startedAt));
         $ratePerMin = (int) round(count($this->completions) * 60 / $window);
 
-        $done = $this->sent + $this->failed + $this->unknown;
-        $cancelled = $state === 'cancelled' ? $this->total - $done : 0;
-        $remaining = max(0, $this->total - $done - $cancelled);
+        $remaining = $this->remaining();
+        // Recipients of this batch still to finish (for the ETA and the batch line).
+        $batchSize = min($this->quota, $this->batchFinal + $remaining);
+        $batchLeft = max(0, $batchSize - $this->batchFinal);
 
         $inflight = [];
         foreach ($this->conns as $c) {
@@ -547,8 +610,15 @@ final class SlidingWindowSender
             'sent' => $this->sent,
             'failed' => $this->failed,
             'unknown' => $this->unknown,
-            'cancelled' => $cancelled,
+            'cancelled' => 0,
             'remaining' => $remaining,
+            'shared_file_id' => $this->fileId,
+            'batch_id' => $this->batchId,
+            'batch_no' => (int) ($this->job['batch_no'] ?? 1),
+            'batch_size' => $batchSize,
+            'batch_limit' => $this->quota,
+            'batch_done' => $this->batchFinal,
+            'batch_unsent' => $state === 'batch_cancelled' ? $batchLeft : 0,
             'limit' => (int) $this->job['limit'],
             'effective_limit' => $this->limit,
             'window_limit' => $this->windowLimit,
@@ -559,13 +629,14 @@ final class SlidingWindowSender
             'dispatched' => $this->dispatched + $before,
             'dispatched_before' => $before,
             'rate_per_min' => $ratePerMin,
-            'eta_seconds' => $ratePerMin > 0 && $remaining > 0 ? (int) ceil($remaining / $ratePerMin * 60) : null,
+            'eta_seconds' => $ratePerMin > 0 && $batchLeft > 0 ? (int) ceil($batchLeft / $ratePerMin * 60) : null,
             'started_at' => (int) $this->startedAt,
             'updated_at' => time(),
             'heartbeat' => time(),
-            'finished_at' => in_array($state, ['completed', 'cancelled'], true) ? time() : null,
+            'finished_at' => in_array($state, ['completed', 'batch_done', 'batch_cancelled'], true) ? time() : null,
             'last_error' => $this->fatalError,
             'pid' => getmypid(),
         ]);
+        SharedFiles::writeProgress($this->fileId, $this->total, $this->sent, $this->failed, $this->unknown);
     }
 }

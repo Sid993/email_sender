@@ -59,7 +59,9 @@ if ($job === null) {
 }
 
 // Cancel requested while no worker was running: just finalise without sending.
-$granted = $ws->control() === 'cancel' ? 1 : ServerCapacity::acquire($userId, (int) $job['limit'], getmypid());
+// No point opening more connections than this batch has recipients.
+$want = max(1, min((int) $job['limit'], (int) ($job['batch_size'] ?? $job['limit'])));
+$granted = $ws->control() === 'cancel' ? 1 : ServerCapacity::acquire($userId, $want, getmypid());
 if ($granted < 1) {
     $failStatus('The server is at its sending capacity right now (other campaigns are running). Click Resume in a moment.');
     exit(0);
@@ -78,9 +80,6 @@ if (function_exists('pcntl_async_signals')) {
 try {
     $final = $sender->run();
     $stamp("Worker finished: $final");
-    if (in_array($final, ['completed', 'cancelled'], true)) {
-        $ws->purgeAfterCompletion();
-    }
 } catch (\Throwable $e) {
     $stamp('Worker error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
     $failStatus('Sending stopped: ' . $e->getMessage());
