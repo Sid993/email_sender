@@ -6,3 +6,5 @@
 !/storage/run/.gitkeep
 composer.local.json
 composer.local.lock
+/storage/shared/*
+!/storage/shared/.gitkeep

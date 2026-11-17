@@ -9,15 +9,15 @@ use App\Config;
 /**
  * A user's temporary campaign workspace: storage/tmp/u{userId}/
  *
- *   upload/            chunk staging for the file being uploaded
- *   recipients.ndjson  parsed, validated, de-duplicated recipients (line N = recipient N)
- *   import.json        import summary (counts, fields, sample rows, file name)
- *   job.json           non-secret campaign settings frozen at Start
+ *   import.json        the loaded shared file: its id, columns, sample rows, counts
+ *   job.json           non-secret settings of the current batch, frozen at Send Now
  *   status.json        live progress, written atomically by the worker
- *   results.log        append-only per-email log (write-ahead: "sending" then final state)
  *   control            desired state written by the web UI: run | pause | cancel
  *   worker.lock        held (flock) by the running worker for its whole lifetime
  *   worker.log         worker stderr / diagnostics
+ *
+ * The recipients and the per-email results log belong to the shared file
+ * (storage/shared/f{id}/, see SharedFiles), so progress survives logout and reloads.
  *
  * Paths are derived ONLY from the authenticated user id, never from request input,
  * so one user can never reach another user's data or control their worker.
@@ -116,9 +116,23 @@ final class Workspace
         }
     }
 
-    public function hasRecipients(): bool
+    /** Id of the shared file loaded in this workspace, or null. */
+    public function sharedFileId(): ?int
     {
-        return is_file($this->path('recipients.ndjson')) && $this->readJson('import.json') !== null;
+        $id = (int) ($this->readJson('import.json')['shared_file_id'] ?? 0);
+        return $id > 0 ? $id : null;
+    }
+
+    public function recipientsPath(): ?string
+    {
+        $id = $this->sharedFileId();
+        return $id === null ? null : SharedFiles::path($id, 'recipients.ndjson');
+    }
+
+    public function resultsPath(): ?string
+    {
+        $id = $this->sharedFileId();
+        return $id === null ? null : SharedFiles::path($id, 'results.log');
     }
 
     /**
@@ -143,31 +157,17 @@ final class Workspace
         return $s;
     }
 
-    /** Removes campaign artefacts; keeps the imported recipients when $keepRecipients. */
-    public function clearCampaign(bool $keepRecipients): void
+    /**
+     * Clears the batch state; also unloads the file unless $keepFile. Never touches the
+     * shared file's data or its sending log.
+     */
+    public function clearCampaign(bool $keepFile): void
     {
-        foreach (['job.json', 'status.json', 'results.log', 'control', 'worker.log'] as $f) {
+        foreach (['job.json', 'status.json', 'control', 'worker.log'] as $f) {
             @unlink($this->path($f));
         }
-        if (!$keepRecipients) {
-            foreach (['recipients.ndjson', 'import.json', 'invalid.csv'] as $f) {
-                @unlink($this->path($f));
-            }
-            self::rrmdir($this->path('upload'));
-        }
-    }
-
-    /** Frees bulky temporary data once a campaign is finished (results are kept for review). */
-    public function purgeAfterCompletion(): void
-    {
-        @unlink($this->path('recipients.ndjson'));
-        @unlink($this->path('invalid.csv'));
-        self::rrmdir($this->path('upload'));
-        $import = $this->readJson('import.json');
-        if ($import !== null) {
-            $import['purged'] = true;
-            $import['sample'] = [];
-            $this->writeJson('import.json', $import);
+        if (!$keepFile) {
+            @unlink($this->path('import.json'));
         }
     }
 

@@ -11,6 +11,8 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Http\Session;
 use App\Sender\TestSender;
+use App\Storage\SharedFiles;
+use App\Storage\Workspace;
 use App\Support\CampaignConfig;
 use App\Template\Renderer;
 
@@ -24,8 +26,6 @@ final class AppController
             'csrf' => Session::csrfToken(),
             'appName' => Config::get('APP_NAME', 'SMTP MAIL BULK MAIL - SERVER'),
             'smtpSupported' => extension_loaded('openssl'),
-            'uploadMaxMb' => Config::int('UPLOAD_MAX_MB', 200),
-            'chunkBytes' => self::chunkBytes(),
         ]);
     }
 
@@ -48,6 +48,7 @@ final class AppController
     public function state(): never
     {
         $ws = Guard::api(true);
+        $notice = self::checkLoadedFile($ws);
         $import = $ws->readJson('import.json');
         Response::json([
             'ok' => true,
@@ -55,7 +56,27 @@ final class AppController
             'import' => $import ? self::publicImport($import) : null,
             'status' => $ws->status(),
             'worker_running' => $ws->isWorkerRunning(),
+            'notice' => $notice,
         ]);
+    }
+
+    /**
+     * Unloads the file if the admin has since reassigned or deleted it (only when no
+     * batch is running or paused on it). Returns a message for the user, or null.
+     */
+    public static function checkLoadedFile(Workspace $ws): ?string
+    {
+        $id = $ws->sharedFileId();
+        if ($id === null || SharedFiles::canAccess($id, $ws->userId, Auth::isAdmin())) {
+            return null;
+        }
+        $state = $ws->status()['state'] ?? '';
+        if ($ws->isWorkerRunning() || in_array($state, [...Workspace::ACTIVE_STATES, 'paused', 'interrupted'], true)) {
+            return null;
+        }
+        $name = (string) ($ws->readJson('import.json')['file_name'] ?? 'The file');
+        $ws->clearCampaign(false);
+        return "\"$name\" is no longer assigned to you, so it was unloaded.";
     }
 
     public function saveConfig(): never
@@ -123,6 +144,7 @@ final class AppController
 
     public static function publicImport(array $import): array
     {
+        $id = (int) ($import['shared_file_id'] ?? 0);
         return [
             'file_name' => $import['file_name'],
             'total' => $import['total'],
@@ -131,8 +153,8 @@ final class AppController
             'fields' => $import['fields'],
             'email_field' => $import['email_field'],
             'sample_rows' => count($import['sample'] ?? []),
-            'purged' => !empty($import['purged']),
             'imported_at' => $import['imported_at'],
+            'progress' => $id > 0 ? SharedFiles::cachedProgress($id, (int) $import['total']) : null,
         ];
     }
 

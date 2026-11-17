@@ -16,6 +16,8 @@ final class Auth
     private const MAX_ATTEMPTS = 5;
     private const LOCK_SECONDS = 300;
 
+    private static ?bool $isAdmin = null;
+
     public static function userId(): ?int
     {
         $id = Session::get('user_id');
@@ -28,7 +30,25 @@ final class Auth
         if ($id === null) {
             return null;
         }
-        return ['id' => $id, 'name' => (string) Session::get('user_name', ''), 'email' => (string) Session::get('user_email', '')];
+        return ['id' => $id, 'name' => (string) Session::get('user_name', ''), 'email' => (string) Session::get('user_email', ''), 'is_admin' => self::isAdmin()];
+    }
+
+    /**
+     * Read from MySQL on each request (not from the session), so promoting or demoting
+     * someone with bin/make-admin.php takes effect immediately.
+     */
+    public static function isAdmin(): bool
+    {
+        if (self::$isAdmin === null) {
+            $id = self::userId();
+            if ($id === null) {
+                return false;
+            }
+            $st = Database::pdo()->prepare('SELECT role FROM users WHERE id = ?');
+            $st->execute([$id]);
+            self::$isAdmin = $st->fetchColumn() === 'admin';
+        }
+        return self::$isAdmin;
     }
 
     /** @return string|null error message, null on success */

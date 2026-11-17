@@ -8,13 +8,19 @@ use App\Http\Guard;
 use App\Http\Request;
 use App\Http\Response;
 use App\Http\Session;
+use App\Auth\Auth;
 use App\Sender\WorkerLauncher;
+use App\Storage\SharedFiles;
 use App\Storage\Workspace;
 use App\Support\CampaignConfig;
 
 /**
- * Start / Pause / Resume / Cancel, live status and failed-email details.
+ * Send Now / Pause / Resume / Cancel, live status and failed-email details.
  * All actions act only on the logged-in user's own workspace and worker.
+ *
+ * Send Now sends one batch: the next `Send Limit` recipients of the loaded file that
+ * haven't been sent yet, all at the same time. The rest stay for the next click.
+ * Cancel stops the current batch only.
  */
 final class CampaignController
 {
@@ -31,19 +37,32 @@ final class CampaignController
         if ($errors) {
             Response::error(implode(' ', $errors), 422, ['errors' => $errors]);
         }
+        $notice = AppController::checkLoadedFile($ws);
+        if ($notice !== null) {
+            Response::error($notice, 409, ['unloaded' => true]);
+        }
         $import = $ws->readJson('import.json');
-        if ($import === null || !empty($import['purged']) || !is_file($ws->path('recipients.ndjson'))) {
-            Response::error('Please upload a recipient file (File Name) first.', 422);
+        $fileId = $ws->sharedFileId();
+        if ($import === null || $fileId === null || !is_file(SharedFiles::path($fileId, 'recipients.ndjson'))) {
+            Response::error('Load your file first: enter its name under File Name and click Load File.', 422);
         }
 
-        $error = $ws->withActionLock(function () use ($ws, $c, $import, $password): ?string {
-            if ($ws->isWorkerRunning() || in_array($ws->status()['state'] ?? '', self::IN_PROGRESS, true)) {
-                return 'A campaign is already in progress. Resume or cancel it first.';
+        $error = $ws->withActionLock(function () use ($ws, $c, $import, $fileId, $password): ?string {
+            $previous = $ws->status();
+            if ($ws->isWorkerRunning() || in_array($previous['state'] ?? '', self::IN_PROGRESS, true)) {
+                return 'A batch is already in progress. Resume or cancel it first.';
+            }
+            $progress = SharedFiles::progress($fileId, (int) $import['total']);
+            if ($progress['remaining'] === 0) {
+                return 'Every recipient in "' . $import['file_name'] . '" has already been processed. Load another file to send more.';
             }
             $ws->clearCampaign(true);
             $job = [
                 'id' => date('YmdHis') . bin2hex(random_bytes(3)),
                 'user_id' => $ws->userId,
+                'shared_file_id' => $fileId,
+                'batch_no' => (int) ($previous['batch_no'] ?? 0) + 1,
+                'batch_size' => (int) $c['send_limit'],
                 'smtp' => [
                     'host' => $c['host'], 'port' => (int) $c['port'], 'security' => $c['security'],
                     'username' => $c['username'], 'from_email' => $c['from_email'], 'from_name' => $c['from_name'],
@@ -60,7 +79,7 @@ final class CampaignController
             ];
             $ws->writeJson('job.json', $job);
             $ws->setControl('run');
-            $ws->writeJson('status.json', self::initialStatus($job));
+            $ws->writeJson('status.json', self::initialStatus($job, $progress));
             return self::launch($ws, $password);
         });
 
@@ -93,10 +112,11 @@ final class CampaignController
                 return 'The campaign is still running.';
             }
             if (!in_array($status['state'] ?? '', ['paused', 'interrupted'], true)) {
-                return 'There is no paused campaign to resume.';
+                return 'There is no paused batch to resume.';
             }
-            if (!is_file($ws->path('recipients.ndjson')) || ($job = $ws->readJson('job.json')) === null) {
-                return 'Campaign data has expired. Please upload the file and start again.';
+            $fileId = $ws->sharedFileId();
+            if ($fileId === null || ($job = $ws->readJson('job.json')) === null || !SharedFiles::canAccess($fileId, $ws->userId, Auth::isAdmin())) {
+                return 'This file is no longer available to you. Cancel the batch and load your file again.';
             }
             if (($job['smtp']['username'] ?? '') !== '' && $password === '') {
                 return 'Please re-enter the SMTP password to resume.';
@@ -130,7 +150,7 @@ final class CampaignController
             $status = $ws->status();
             $state = $status['state'] ?? '';
             if (!in_array($state, self::IN_PROGRESS, true)) {
-                return 'There is no campaign to cancel.';
+                return 'There is no batch to cancel.';
             }
             $ws->setControl('cancel');
             if ($ws->isWorkerRunning()) {
@@ -149,6 +169,7 @@ final class CampaignController
     public function status(): never
     {
         $ws = Guard::api(true);
+        AppController::checkLoadedFile($ws);
         $import = $ws->readJson('import.json');
         Response::json([
             'ok' => true,
@@ -157,13 +178,13 @@ final class CampaignController
         ]);
     }
 
-    /** Clears a finished campaign so a new one can be prepared. */
+    /** Unloads the file. Its sending progress stays on the server for the next load. */
     public function reset(): never
     {
         $ws = Guard::api(true);
         $out = $ws->withActionLock(function () use ($ws): ?string {
             if ($ws->isWorkerRunning() || in_array($ws->status()['state'] ?? '', self::IN_PROGRESS, true)) {
-                return 'Cancel the current campaign first.';
+                return 'Cancel the current batch first.';
             }
             $ws->clearCampaign(false);
             return null;
@@ -202,11 +223,11 @@ final class CampaignController
 
     // ------------------------------------------------------------------------
 
-    /** Final failures (failed / unknown) streamed from the append-only results log. */
+    /** Final failures (failed / unknown) of the loaded file, streamed from its results log. */
     private static function failures(Workspace $ws, string $q): array
     {
-        $file = $ws->path('results.log');
-        if (!is_file($file)) {
+        $file = $ws->resultsPath();
+        if ($file === null || !is_file($file)) {
             return [];
         }
         $out = [];
@@ -249,15 +270,22 @@ final class CampaignController
         }
     }
 
-    private static function initialStatus(array $job): array
+    private static function initialStatus(array $job, array $progress): array
     {
         return [
             'state' => 'starting',
             'campaign_id' => $job['id'],
             'file_name' => $job['file_name'],
             'total' => $job['total'],
-            'sent' => 0, 'failed' => 0, 'unknown' => 0, 'cancelled' => 0,
-            'remaining' => $job['total'],
+            'sent' => $progress['sent'], 'failed' => $progress['failed'], 'unknown' => $progress['unknown'], 'cancelled' => 0,
+            'remaining' => $progress['remaining'],
+            'shared_file_id' => $job['shared_file_id'],
+            'batch_id' => $job['id'],
+            'batch_no' => $job['batch_no'],
+            'batch_size' => min($job['batch_size'], $progress['remaining']),
+            'batch_limit' => $job['batch_size'],
+            'batch_done' => 0,
+            'batch_unsent' => 0,
             'limit' => $job['limit'],
             'effective_limit' => null,
             'window_limit' => null,

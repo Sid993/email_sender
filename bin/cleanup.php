@@ -5,7 +5,9 @@
  *   0,15,30,45 * * * * www-data php /var/www/bulk-mailer/bin/cleanup.php >/dev/null 2>&1
  *
  * A workspace is removed when no worker is running for it and it has been idle longer
- * than JOB_RETENTION_HOURS (finished campaigns) or SESSION_LIFETIME (abandoned uploads).
+ * than JOB_RETENTION_HOURS (after a batch) or SESSION_LIFETIME (nothing sent yet).
+ * Shared files and their sending progress (storage/shared) are never removed here:
+ * only an admin deletes them.
  */
 
 declare(strict_types=1);
@@ -36,6 +38,13 @@ foreach (glob(Config::storagePath('tmp/u*'), GLOB_ONLYDIR) ?: [] as $dir) {
     if ($latest === 0 || $now - $latest > $limit) {
         $ws->deleteAll();
         $removed++;
+    }
+}
+
+// Admin uploads that were abandoned half-way.
+foreach (glob(Config::storagePath('tmp/staging/u*/*')) ?: [] as $file) {
+    if ($now - (int) filemtime($file) > 86400) {
+        @unlink($file);
     }
 }
 
